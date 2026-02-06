@@ -36,22 +36,27 @@ app.add_middleware(
 
 # === CHARGEMENT DES DONNÉES ===
 
-# URL du dataset Superstore sur GitHub
+# URL et chemin local du dataset Superstore
 DATASET_URL = "https://raw.githubusercontent.com/leonism/sample-superstore/master/data/superstore.csv"
+DATASET_LOCAL_PATH = "data/superstore.csv"
 
 def load_data() -> pd.DataFrame:
     """
-    Charge le dataset Superstore depuis GitHub
+    Charge le dataset Superstore depuis un fichier local ou GitHub
     Nettoie et prépare les données pour l'analyse
     
     Returns:
         pd.DataFrame: Dataset nettoyé et prêt à l'emploi
     """
+    import os
     try:
-        logger.info(f"Chargement du dataset depuis {DATASET_URL}")
-        
-        # Lecture du CSV
-        df = pd.read_csv(DATASET_URL, encoding='latin-1')
+        # Tentative de chargement local d'abord (plus rapide et évite les erreurs DNS)
+        if os.path.exists(DATASET_LOCAL_PATH):
+            logger.info(f"Chargement du dataset local depuis {DATASET_LOCAL_PATH}")
+            df = pd.read_csv(DATASET_LOCAL_PATH, encoding='latin-1')
+        else:
+            logger.info(f"Fichier local non trouvé. Chargement depuis {DATASET_URL}")
+            df = pd.read_csv(DATASET_URL, encoding='latin-1')
         
         # Nettoyage des noms de colonnes (suppression espaces)
         df.columns = df.columns.str.strip()

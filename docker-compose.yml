@@ -5,7 +5,7 @@ services:
       dockerfile: Dockerfile
     container_name: superstore-api
     ports:
-      - "8000:8000"
+      - "8001:8000"
     environment:
       - PYTHONUNBUFFERED=1
     networks:

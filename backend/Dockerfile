@@ -18,7 +18,7 @@ RUN pip install --no-cache-dir \
     pandas==2.1.4 \
     numpy==1.26.3
 
-COPY main.py .
+COPY . .
 
 EXPOSE 8000
 
