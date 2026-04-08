@@ -84,6 +84,7 @@ st.header("📊 KPIs Commerciaux")
 
 kpi_data = appeler_api("/kpi/globaux", params=params_filtres)
 comparaison_data = appeler_api("/kpi/comparaison", params=params_filtres)
+kpi_executif = appeler_api("/kpi/executif")
 
 col1, col2, col3, col4 = st.columns(4)
 
@@ -100,6 +101,14 @@ with col3:
 with col4:
     articles_par_commande = kpi_data['quantite_vendue'] / kpi_data['nb_commandes'] if kpi_data['nb_commandes'] > 0 else 0
     st.metric("📊 Articles/Commande", f"{articles_par_commande:.2f}")
+
+col5, col6, col7 = st.columns(3)
+with col5:
+    st.metric("🔁 Taux clients récurrents", f"{kpi_executif['taux_clients_recurrents_pct']:.1f}%")
+with col6:
+    st.metric("💎 LTV moyen (proxy)", formater_euro(kpi_executif['ltv_moyen_proxy']))
+with col7:
+    st.metric("⚠️ Commandes en perte (proxy)", f"{kpi_executif['taux_commandes_perte_pct']:.1f}%")
 
 st.divider()
 
@@ -216,8 +225,14 @@ with tab2:
     # Analyse détaillée des segments
     st.markdown("### 📋 Analyse détaillée par segment")
     
-    # Calcul du panier moyen par segment
-    df_segments['panier_moyen_calc'] = df_segments['ca'] / df_segments['nb_commandes']
+    # Calcul du panier moyen par segment si l'API ne le fournit pas déjà
+    if 'nb_commandes' not in df_segments.columns:
+        df_segments['nb_commandes'] = 0
+    if 'panier_moyen' not in df_segments.columns:
+        df_segments['panier_moyen'] = df_segments.apply(
+            lambda row: round(row['ca'] / row['nb_commandes'], 2) if row['nb_commandes'] > 0 else 0,
+            axis=1
+        )
     
     st.dataframe(
         df_segments[['segment', 'ca', 'profit', 'nb_clients', 'nb_commandes', 'panier_moyen']].rename(columns={
@@ -295,7 +310,6 @@ with tab3:
 
 # Footer
 st.divider()
-st.markdown("---")
 st.markdown("""
 <div style='text-align: center; color: #7f8c8d;'>
     <p>💼 <b>Dashboard Responsable Commercial</b> | Performance commerciale et fidélisation</p>

@@ -9,6 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from typing import Optional, List, Dict, Any
 from datetime import datetime
 import pandas as pd
+import numpy as np
 from pydantic import BaseModel
 import logging
 
@@ -151,6 +152,18 @@ class StorytellingResponse(BaseModel):
     alertes: List[Insight]
     recommandations: List[str]
 
+
+class KPIExecutif(BaseModel):
+    """Modèle pour les KPI exécutifs et financiers (avec proxys)."""
+    croissance_mensuelle_moyenne_pct: float
+    croissance_annuelle_pct: float
+    roi_global_pct: float
+    projection_ca_prochain_mois: float
+    taux_clients_recurrents_pct: float
+    ltv_moyen_proxy: float
+    taux_lignes_perte_pct: float
+    taux_commandes_perte_pct: float
+
 # === FONCTIONS UTILITAIRES ===
 
 def filtrer_dataframe(
@@ -196,6 +209,28 @@ def filtrer_dataframe(
         df_filtered = df_filtered[df_filtered['Segment'] == segment]
     
     return df_filtered
+
+
+def calculer_projection_ca_prochain_mois(df_source: pd.DataFrame, nb_mois: int = 12) -> float:
+    """
+    Calcule une projection simple du CA du mois suivant via régression linéaire.
+    """
+    mensuel = df_source.groupby(df_source['Order Date'].dt.to_period('M'))['Sales'].sum().reset_index()
+    mensuel.columns = ['periode', 'ca']
+    mensuel = mensuel.sort_values('periode').tail(nb_mois).reset_index(drop=True)
+
+    if mensuel.empty:
+        return 0.0
+    if len(mensuel) == 1:
+        return float(mensuel.loc[0, 'ca'])
+
+    x = pd.Series(range(len(mensuel)), dtype='float64')
+    y = mensuel['ca'].astype('float64')
+
+    # Polyfit renvoie pente/interception pour une tendance linéaire simple
+    pente, interception = np.polyfit(x, y, 1)
+    projection = pente * len(mensuel) + interception
+    return float(max(projection, 0.0))
 
 # === ENDPOINTS API ===
 
@@ -325,19 +360,93 @@ def get_performance_categories():
     categories = df.groupby('Category').agg({
         'Sales': 'sum',
         'Profit': 'sum',
-        'Order ID': 'nunique'
+        'Order ID': 'nunique',
+        'Quantity': 'sum'
     }).reset_index()
+
+    # Proxy de risque retour : lignes à profit négatif et commandes en perte
+    retours_proxy = df.assign(ligne_perte=df['Profit'] < 0).groupby('Category').agg({
+        'ligne_perte': 'mean'
+    }).reset_index()
+    retours_proxy.columns = ['Category', 'taux_lignes_perte_pct']
+    retours_proxy['taux_lignes_perte_pct'] = (retours_proxy['taux_lignes_perte_pct'] * 100).round(2)
     
     # Calcul de la marge
     categories['marge_pct'] = (categories['Profit'] / categories['Sales'] * 100).round(2)
+
+    categories = categories.merge(retours_proxy, on='Category', how='left')
     
     # Renommage des colonnes
-    categories.columns = ['categorie', 'ca', 'profit', 'nb_commandes', 'marge_pct']
+    categories.columns = ['categorie', 'ca', 'profit', 'nb_commandes', 'quantite', 'marge_pct', 'taux_lignes_perte_pct']
     
     # Tri par CA décroissant
     categories = categories.sort_values('ca', ascending=False)
     
     return categories.to_dict('records')
+
+
+@app.get("/kpi/executif", response_model=KPIExecutif, tags=["KPI Avancés"])
+def get_kpi_executif():
+    """
+    🎯 KPI EXÉCUTIFS (incluant des proxys quand la donnée métier n'existe pas)
+
+    - Croissance mensuelle moyenne
+    - Croissance annuelle (dernière année vs précédente)
+    - ROI global proxy (Profit / Sales)
+    - Projection CA mois prochain (tendance linéaire)
+    - Taux de clients récurrents
+    - LTV moyen proxy (CA / clients)
+    - Taux de lignes et commandes en perte (proxy retours/remboursements)
+    """
+    # Croissance mensuelle
+    df_mensuel = df.groupby(df['Order Date'].dt.to_period('M'))['Sales'].sum().reset_index()
+    df_mensuel.columns = ['periode', 'ca']
+    df_mensuel = df_mensuel.sort_values('periode')
+    df_mensuel['croissance_pct'] = df_mensuel['ca'].pct_change() * 100
+    croissance_mensuelle_moyenne_pct = df_mensuel['croissance_pct'].dropna().mean()
+
+    # Croissance annuelle
+    df_annuel = df.groupby(df['Order Date'].dt.year)['Sales'].sum().reset_index()
+    df_annuel.columns = ['annee', 'ca']
+    df_annuel = df_annuel.sort_values('annee')
+    if len(df_annuel) >= 2 and df_annuel.iloc[-2]['ca'] > 0:
+        croissance_annuelle_pct = ((df_annuel.iloc[-1]['ca'] - df_annuel.iloc[-2]['ca']) / df_annuel.iloc[-2]['ca']) * 100
+    else:
+        croissance_annuelle_pct = 0.0
+
+    # ROI global proxy
+    ca_total = df['Sales'].sum()
+    profit_total = df['Profit'].sum()
+    roi_global_pct = (profit_total / ca_total * 100) if ca_total > 0 else 0.0
+
+    # Projection simple du mois suivant
+    projection_ca_prochain_mois = calculer_projection_ca_prochain_mois(df)
+
+    # Fidélisation et LTV proxy
+    clients = df.groupby('Customer ID').agg({
+        'Order ID': 'nunique',
+        'Sales': 'sum'
+    }).reset_index()
+    total_clients = len(clients)
+    clients_recurrents = len(clients[clients['Order ID'] > 1])
+    taux_clients_recurrents_pct = (clients_recurrents / total_clients * 100) if total_clients > 0 else 0.0
+    ltv_moyen_proxy = (clients['Sales'].sum() / total_clients) if total_clients > 0 else 0.0
+
+    # Proxys retours/remboursements: pertes
+    taux_lignes_perte_pct = ((df['Profit'] < 0).mean() * 100) if len(df) > 0 else 0.0
+    commandes_profit = df.groupby('Order ID')['Profit'].sum().reset_index()
+    taux_commandes_perte_pct = ((commandes_profit['Profit'] < 0).mean() * 100) if len(commandes_profit) > 0 else 0.0
+
+    return KPIExecutif(
+        croissance_mensuelle_moyenne_pct=round(float(croissance_mensuelle_moyenne_pct) if pd.notna(croissance_mensuelle_moyenne_pct) else 0.0, 2),
+        croissance_annuelle_pct=round(float(croissance_annuelle_pct), 2),
+        roi_global_pct=round(float(roi_global_pct), 2),
+        projection_ca_prochain_mois=round(float(projection_ca_prochain_mois), 2),
+        taux_clients_recurrents_pct=round(float(taux_clients_recurrents_pct), 2),
+        ltv_moyen_proxy=round(float(ltv_moyen_proxy), 2),
+        taux_lignes_perte_pct=round(float(taux_lignes_perte_pct), 2),
+        taux_commandes_perte_pct=round(float(taux_commandes_perte_pct), 2)
+    )
 
 @app.get("/kpi/temporel", tags=["KPI"])
 def get_evolution_temporelle(
@@ -434,9 +543,14 @@ def get_analyse_clients(
     segments = df.groupby('Segment').agg({
         'Sales': 'sum',
         'Profit': 'sum',
-        'Customer ID': 'nunique'
+        'Customer ID': 'nunique',
+        'Order ID': 'nunique'
     }).reset_index()
-    segments.columns = ['segment', 'ca', 'profit', 'nb_clients']
+    segments.columns = ['segment', 'ca', 'profit', 'nb_clients', 'nb_commandes']
+    segments['panier_moyen'] = segments.apply(
+        lambda row: round(row['ca'] / row['nb_commandes'], 2) if row['nb_commandes'] > 0 else 0,
+        axis=1
+    )
     
     return {
         "top_clients": top_clients.to_dict('records'),

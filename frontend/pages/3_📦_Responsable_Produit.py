@@ -80,6 +80,7 @@ if categorie != "Toutes":
 st.header("📊 KPIs Produit & Marketing")
 
 kpi_data = appeler_api("/kpi/globaux", params=params_filtres)
+kpi_executif = appeler_api("/kpi/executif")
 
 col1, col2, col3, col4 = st.columns(4)
 
@@ -95,6 +96,12 @@ with col3:
 with col4:
     articles_par_commande = kpi_data['quantite_vendue'] / kpi_data['nb_commandes'] if kpi_data['nb_commandes'] > 0 else 0
     st.metric("📊 Articles/Commande", f"{articles_par_commande:.2f}")
+
+col5, col6 = st.columns(2)
+with col5:
+    st.metric("↩️ Lignes en perte (proxy retours)", f"{kpi_executif['taux_lignes_perte_pct']:.1f}%")
+with col6:
+    st.metric("⚠️ Commandes en perte", f"{kpi_executif['taux_commandes_perte_pct']:.1f}%")
 
 st.divider()
 
@@ -145,22 +152,23 @@ with tab1:
     st.plotly_chart(fig_produits, use_container_width=True)
     
     # Tableau détaillé
-    with st.expander("📋 Tableau détaillé des produits"):
-        # Calcul de la marge par produit
-        df_produits['marge_pct'] = (df_produits['profit'] / df_produits['ca'] * 100).round(2)
-        
-        st.dataframe(
-            df_produits[['produit', 'categorie', 'ca', 'profit', 'quantite', 'marge_pct']].rename(columns={
-                'produit': 'Produit',
-                'categorie': 'Catégorie',
-                'ca': 'CA (€)',
-                'profit': 'Profit (€)',
-                'quantite': 'Quantité',
-                'marge_pct': 'Marge (%)'
-            }),
-            use_container_width=True,
-            hide_index=True
-        )
+    st.markdown("### 📋 Tableau détaillé")
+
+    # Calcul de la marge par produit
+    df_produits['marge_pct'] = (df_produits['profit'] / df_produits['ca'] * 100).round(2)
+
+    st.dataframe(
+        df_produits[['produit', 'categorie', 'ca', 'profit', 'quantite', 'marge_pct']].rename(columns={
+            'produit': 'Produit',
+            'categorie': 'Catégorie',
+            'ca': 'CA (€)',
+            'profit': 'Profit (€)',
+            'quantite': 'Quantité',
+            'marge_pct': 'Marge (%)'
+        }),
+        use_container_width=True,
+        hide_index=True
+    )
 
 with tab2:
     st.subheader("📦 Performance par Catégorie")
@@ -213,6 +221,22 @@ with tab2:
         )
         fig_marge.update_traces(texttemplate='%{text:.1f}%', textposition='outside')
         st.plotly_chart(fig_marge, use_container_width=True)
+
+    if 'taux_lignes_perte_pct' in df_cat.columns:
+        st.markdown("### ↩️ Risque de retour/perte par catégorie (proxy)")
+        fig_retours = px.bar(
+            df_cat,
+            x='categorie',
+            y='taux_lignes_perte_pct',
+            title="Taux de lignes en perte par catégorie (%)",
+            labels={'categorie': 'Catégorie', 'taux_lignes_perte_pct': 'Taux lignes en perte (%)'},
+            color='taux_lignes_perte_pct',
+            color_continuous_scale='OrRd',
+            text='taux_lignes_perte_pct',
+            height=350
+        )
+        fig_retours.update_traces(texttemplate='%{text:.1f}%', textposition='outside')
+        st.plotly_chart(fig_retours, use_container_width=True)
     
     # Analyse sous-catégories
     st.markdown("### 🔍 Zoom sur les Sous-catégories")
@@ -311,7 +335,6 @@ with tab3:
 
 # Footer
 st.divider()
-st.markdown("---")
 st.markdown("""
 <div style='text-align: center; color: #7f8c8d;'>
     <p>📦 <b>Dashboard Responsable Produit</b> | Optimisation catalogue et marketing</p>

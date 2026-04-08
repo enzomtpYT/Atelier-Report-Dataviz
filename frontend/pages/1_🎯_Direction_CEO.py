@@ -82,6 +82,7 @@ st.header("📊 KPIs Stratégiques")
 
 kpi_data = appeler_api("/kpi/globaux", params=params_filtres)
 comparaison_data = appeler_api("/kpi/comparaison", params=params_filtres)
+kpi_executif = appeler_api("/kpi/executif")
 
 col1, col2, col3, col4 = st.columns(4)
 
@@ -102,6 +103,17 @@ with col4:
 # Tendance globale
 tendance_emoji = {"hausse": "📈", "baisse": "📉", "stable": "➡️"}
 st.caption(f"{tendance_emoji.get(comparaison_data['tendance'], '📊')} Tendance : **{comparaison_data['tendance'].upper()}** vs période précédente")
+
+st.markdown("### 📌 Croissance & ROI (niveau direction)")
+col_exec1, col_exec2, col_exec3, col_exec4 = st.columns(4)
+with col_exec1:
+    st.metric("📅 Croissance mensuelle moy.", f"{kpi_executif['croissance_mensuelle_moyenne_pct']:+.1f}%")
+with col_exec2:
+    st.metric("🗓️ Croissance annuelle", f"{kpi_executif['croissance_annuelle_pct']:+.1f}%")
+with col_exec3:
+    st.metric("🎯 ROI global (proxy)", f"{kpi_executif['roi_global_pct']:.1f}%")
+with col_exec4:
+    st.metric("🔮 Projection CA mois+1", formater_euro(kpi_executif['projection_ca_prochain_mois']))
 
 st.divider()
 
@@ -229,7 +241,6 @@ with tab2:
 
 # Footer
 st.divider()
-st.markdown("---")
 st.markdown("""
 <div style='text-align: center; color: #7f8c8d;'>
     <p>🎯 <b>Dashboard Direction/CEO</b> | Vue stratégique globale</p>

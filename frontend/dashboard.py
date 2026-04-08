@@ -100,6 +100,7 @@ with st.spinner("📊 Chargement des données..."):
     try:
         kpi_data = appeler_api("/kpi/globaux")
         comparaison_data = appeler_api("/kpi/comparaison")
+        kpi_executif = appeler_api("/kpi/executif")
         
         # KPIs principaux
         st.header("📊 KPIs Globaux")
@@ -137,6 +138,16 @@ with st.spinner("📊 Chargement des données..."):
         with col8:
             articles_par_cmd = kpi_data['quantite_vendue'] / kpi_data['nb_commandes'] if kpi_data['nb_commandes'] > 0 else 0
             st.metric("📊 Articles/Commande", f"{articles_par_cmd:.1f}")
+
+        col9, col10, col11, col12 = st.columns(4)
+        with col9:
+            st.metric("📅 Croissance mensuelle moy.", f"{kpi_executif['croissance_mensuelle_moyenne_pct']:+.1f}%")
+        with col10:
+            st.metric("🗓️ Croissance annuelle", f"{kpi_executif['croissance_annuelle_pct']:+.1f}%")
+        with col11:
+            st.metric("🎯 ROI global (proxy)", f"{kpi_executif['roi_global_pct']:.1f}%")
+        with col12:
+            st.metric("🔮 Projection CA mois+1", formater_euro(kpi_executif['projection_ca_prochain_mois']))
         
         st.divider()
         
