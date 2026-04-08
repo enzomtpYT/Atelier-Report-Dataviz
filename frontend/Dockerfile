@@ -17,7 +17,7 @@ RUN pip install --no-cache-dir \
     requests==2.31.0 \
     pandas==2.1.4
 
-COPY dashboard.py .
+COPY . .
 
 EXPOSE 8501
 

@@ -106,6 +106,51 @@ class CategoriePerf(BaseModel):
     nb_commandes: int
     marge_pct: float
 
+class ComparaisonPeriode(BaseModel):
+    """Modèle pour la comparaison de périodes"""
+    ca_actuel: float
+    ca_precedent: float
+    evolution_ca_pct: float
+    profit_actuel: float
+    profit_precedent: float
+    evolution_profit_pct: float
+    commandes_actuel: int
+    commandes_precedent: int
+    evolution_commandes_pct: float
+    tendance: str  # "hausse", "baisse", "stable"
+
+class Rentabilite(BaseModel):
+    """Modèle pour les indicateurs de rentabilité"""
+    ca_par_client: float
+    profit_par_commande: float
+    nb_produits_negatifs: int
+    pct_produits_negatifs: float
+    ratio_profit_ca: float
+    top_rentables: List[Dict[str, Any]]
+    flop_rentables: List[Dict[str, Any]]
+
+class Saisonnalite(BaseModel):
+    """Modèle pour l'analyse de saisonnalité"""
+    performance_jour_semaine: List[Dict[str, Any]]
+    performance_mois: List[Dict[str, Any]]
+    meilleur_jour: str
+    meilleur_mois: str
+    pic_ventes: Dict[str, Any]
+
+class Insight(BaseModel):
+    """Modèle pour un insight de storytelling"""
+    type: str  # "principal", "attention", "tendance", "recommandation"
+    titre: str
+    message: str
+    icone: str
+
+class StorytellingResponse(BaseModel):
+    """Modèle pour la réponse storytelling complète"""
+    resume_principal: str
+    insights: List[Insight]
+    alertes: List[Insight]
+    recommandations: List[str]
+
 # === FONCTIONS UTILITAIRES ===
 
 def filtrer_dataframe(
@@ -441,6 +486,356 @@ def get_commandes(
         "offset": offset,
         "data": commandes_dict.to_dict('records')
     }
+
+# === NOUVEAUX ENDPOINTS POUR LE REPORTING ENRICHI ===
+
+@app.get("/kpi/comparaison", response_model=ComparaisonPeriode, tags=["KPI Avancés"])
+def get_comparaison_periodes(
+    date_debut: Optional[str] = Query(None, description="Date début période actuelle (YYYY-MM-DD)"),
+    date_fin: Optional[str] = Query(None, description="Date fin période actuelle (YYYY-MM-DD)")
+):
+    """
+    📊 COMPARAISON DE PÉRIODES
+    
+    Compare les performances de la période sélectionnée avec la période précédente de même durée.
+    Exemple : si on sélectionne janvier 2017, compare avec décembre 2016.
+    """
+    # Définir les dates par défaut (dernier mois vs mois précédent)
+    if not date_fin:
+        date_fin_dt = df['Order Date'].max()
+    else:
+        date_fin_dt = pd.to_datetime(date_fin)
+    
+    if not date_debut:
+        date_debut_dt = date_fin_dt - pd.Timedelta(days=30)
+    else:
+        date_debut_dt = pd.to_datetime(date_debut)
+    
+    # Calculer la durée de la période
+    duree = (date_fin_dt - date_debut_dt).days
+    
+    # Période précédente
+    date_fin_prec = date_debut_dt - pd.Timedelta(days=1)
+    date_debut_prec = date_fin_prec - pd.Timedelta(days=duree)
+    
+    # Filtrer les données pour chaque période
+    df_actuel = df[(df['Order Date'] >= date_debut_dt) & (df['Order Date'] <= date_fin_dt)]
+    df_precedent = df[(df['Order Date'] >= date_debut_prec) & (df['Order Date'] <= date_fin_prec)]
+    
+    # Calculs période actuelle
+    ca_actuel = df_actuel['Sales'].sum()
+    profit_actuel = df_actuel['Profit'].sum()
+    commandes_actuel = df_actuel['Order ID'].nunique()
+    
+    # Calculs période précédente
+    ca_precedent = df_precedent['Sales'].sum()
+    profit_precedent = df_precedent['Profit'].sum()
+    commandes_precedent = df_precedent['Order ID'].nunique()
+    
+    # Calcul des évolutions
+    evolution_ca = ((ca_actuel - ca_precedent) / ca_precedent * 100) if ca_precedent > 0 else 0
+    evolution_profit = ((profit_actuel - profit_precedent) / profit_precedent * 100) if profit_precedent > 0 else 0
+    evolution_commandes = ((commandes_actuel - commandes_precedent) / commandes_precedent * 100) if commandes_precedent > 0 else 0
+    
+    # Déterminer la tendance
+    if evolution_ca > 5:
+        tendance = "hausse"
+    elif evolution_ca < -5:
+        tendance = "baisse"
+    else:
+        tendance = "stable"
+    
+    return ComparaisonPeriode(
+        ca_actuel=round(ca_actuel, 2),
+        ca_precedent=round(ca_precedent, 2),
+        evolution_ca_pct=round(evolution_ca, 2),
+        profit_actuel=round(profit_actuel, 2),
+        profit_precedent=round(profit_precedent, 2),
+        evolution_profit_pct=round(evolution_profit, 2),
+        commandes_actuel=commandes_actuel,
+        commandes_precedent=commandes_precedent,
+        evolution_commandes_pct=round(evolution_commandes, 2),
+        tendance=tendance
+    )
+
+@app.get("/kpi/rentabilite", response_model=Rentabilite, tags=["KPI Avancés"])
+def get_rentabilite():
+    """
+    💰 INDICATEURS DE RENTABILITÉ
+    
+    Analyse approfondie de la rentabilité :
+    - CA par client
+    - Profit par commande
+    - Produits à marge négative
+    - Top/Flop produits par rentabilité
+    """
+    # Indicateurs globaux
+    ca_total = df['Sales'].sum()
+    profit_total = df['Profit'].sum()
+    nb_clients = df['Customer ID'].nunique()
+    nb_commandes = df['Order ID'].nunique()
+    
+    ca_par_client = ca_total / nb_clients if nb_clients > 0 else 0
+    profit_par_commande = profit_total / nb_commandes if nb_commandes > 0 else 0
+    ratio_profit_ca = (profit_total / ca_total * 100) if ca_total > 0 else 0
+    
+    # Analyse des produits
+    produits = df.groupby('Product Name').agg({
+        'Sales': 'sum',
+        'Profit': 'sum',
+        'Quantity': 'sum'
+    }).reset_index()
+    
+    produits['marge_pct'] = (produits['Profit'] / produits['Sales'] * 100).round(2)
+    
+    # Produits à marge négative
+    produits_negatifs = produits[produits['Profit'] < 0]
+    nb_produits_negatifs = len(produits_negatifs)
+    pct_produits_negatifs = (nb_produits_negatifs / len(produits) * 100) if len(produits) > 0 else 0
+    
+    # Top 5 les plus rentables
+    top_rentables = produits.nlargest(5, 'marge_pct')[['Product Name', 'Sales', 'Profit', 'marge_pct']]
+    top_rentables = top_rentables.rename(columns={
+        'Product Name': 'produit', 'Sales': 'ca', 'Profit': 'profit'
+    }).to_dict('records')
+    
+    # Flop 5 les moins rentables
+    flop_rentables = produits.nsmallest(5, 'marge_pct')[['Product Name', 'Sales', 'Profit', 'marge_pct']]
+    flop_rentables = flop_rentables.rename(columns={
+        'Product Name': 'produit', 'Sales': 'ca', 'Profit': 'profit'
+    }).to_dict('records')
+    
+    return Rentabilite(
+        ca_par_client=round(ca_par_client, 2),
+        profit_par_commande=round(profit_par_commande, 2),
+        nb_produits_negatifs=nb_produits_negatifs,
+        pct_produits_negatifs=round(pct_produits_negatifs, 2),
+        ratio_profit_ca=round(ratio_profit_ca, 2),
+        top_rentables=top_rentables,
+        flop_rentables=flop_rentables
+    )
+
+@app.get("/kpi/saisonnalite", response_model=Saisonnalite, tags=["KPI Avancés"])
+def get_saisonnalite():
+    """
+    📅 ANALYSE DE SAISONNALITÉ
+    
+    Identifie les patterns temporels :
+    - Performance par jour de la semaine
+    - Performance par mois de l'année
+    - Meilleur jour et meilleur mois
+    - Pic de ventes
+    """
+    df_temp = df.copy()
+    
+    # Ajout des colonnes temporelles
+    df_temp['jour_semaine'] = df_temp['Order Date'].dt.day_name()
+    df_temp['mois'] = df_temp['Order Date'].dt.month_name()
+    df_temp['mois_num'] = df_temp['Order Date'].dt.month
+    
+    # Performance par jour de la semaine
+    jours_ordre = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+    jours_fr = ['Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi', 'Dimanche']
+    
+    perf_jour = df_temp.groupby('jour_semaine').agg({
+        'Sales': 'sum',
+        'Profit': 'sum',
+        'Order ID': 'nunique'
+    }).reindex(jours_ordre).reset_index()
+    perf_jour['jour_fr'] = jours_fr
+    perf_jour.columns = ['jour_en', 'ca', 'profit', 'nb_commandes', 'jour']
+    perf_jour = perf_jour[['jour', 'ca', 'profit', 'nb_commandes']].to_dict('records')
+    
+    # Performance par mois
+    perf_mois = df_temp.groupby(['mois_num', 'mois']).agg({
+        'Sales': 'sum',
+        'Profit': 'sum',
+        'Order ID': 'nunique'
+    }).reset_index().sort_values('mois_num')
+    perf_mois.columns = ['mois_num', 'mois', 'ca', 'profit', 'nb_commandes']
+    perf_mois = perf_mois[['mois', 'ca', 'profit', 'nb_commandes']].to_dict('records')
+    
+    # Meilleur jour
+    df_jour = df_temp.groupby('jour_semaine')['Sales'].sum()
+    meilleur_jour_en = df_jour.idxmax()
+    meilleur_jour = jours_fr[jours_ordre.index(meilleur_jour_en)]
+    
+    # Meilleur mois
+    df_mois = df_temp.groupby('mois')['Sales'].sum()
+    meilleur_mois = df_mois.idxmax()
+    
+    # Pic de ventes (meilleur jour absolu)
+    df_temp['date'] = df_temp['Order Date'].dt.date
+    ventes_par_jour = df_temp.groupby('date').agg({
+        'Sales': 'sum',
+        'Order ID': 'nunique'
+    }).reset_index()
+    
+    pic = ventes_par_jour.loc[ventes_par_jour['Sales'].idxmax()]
+    pic_ventes = {
+        "date": str(pic['date']),
+        "ca": round(pic['Sales'], 2),
+        "nb_commandes": int(pic['Order ID'])
+    }
+    
+    return Saisonnalite(
+        performance_jour_semaine=perf_jour,
+        performance_mois=perf_mois,
+        meilleur_jour=meilleur_jour,
+        meilleur_mois=meilleur_mois,
+        pic_ventes=pic_ventes
+    )
+
+@app.get("/kpi/insights", response_model=StorytellingResponse, tags=["KPI Avancés"])
+def get_insights():
+    """
+    📖 DATA STORYTELLING
+    
+    Génère automatiquement des insights narratifs :
+    - Résumé de la performance
+    - Points d'attention (alertes)
+    - Tendances identifiées
+    - Recommandations d'action
+    """
+    # Calculs de base
+    ca_total = df['Sales'].sum()
+    profit_total = df['Profit'].sum()
+    marge_globale = (profit_total / ca_total * 100) if ca_total > 0 else 0
+    nb_commandes = df['Order ID'].nunique()
+    nb_clients = df['Customer ID'].nunique()
+    
+    insights = []
+    alertes = []
+    recommandations = []
+    
+    # === INSIGHT PRINCIPAL ===
+    resume = f"Le chiffre d'affaires total s'élève à {ca_total:,.0f} € avec un profit de {profit_total:,.0f} € (marge de {marge_globale:.1f}%). "
+    resume += f"{nb_clients:,} clients ont passé {nb_commandes:,} commandes."
+    
+    # === ANALYSE PAR CATÉGORIE ===
+    categories = df.groupby('Category').agg({
+        'Sales': 'sum',
+        'Profit': 'sum'
+    }).reset_index()
+    categories['marge'] = (categories['Profit'] / categories['Sales'] * 100).round(2)
+    
+    # Meilleure catégorie
+    best_cat = categories.loc[categories['Sales'].idxmax()]
+    insights.append(Insight(
+        type="tendance",
+        titre="Catégorie phare",
+        message=f"{best_cat['Category']} génère le plus gros CA ({best_cat['Sales']:,.0f} €) avec une marge de {best_cat['marge']:.1f}%.",
+        icone="🏆"
+    ))
+    
+    # Catégorie à problème (marge la plus faible)
+    worst_margin_cat = categories.loc[categories['marge'].idxmin()]
+    if worst_margin_cat['marge'] < 10:
+        alertes.append(Insight(
+            type="attention",
+            titre="Marge faible",
+            message=f"La catégorie {worst_margin_cat['Category']} a une marge de seulement {worst_margin_cat['marge']:.1f}%.",
+            icone="⚠️"
+        ))
+        recommandations.append(f"Analyser les coûts et prix de la catégorie {worst_margin_cat['Category']}.")
+    
+    # === ANALYSE PAR RÉGION ===
+    regions = df.groupby('Region').agg({
+        'Sales': 'sum',
+        'Profit': 'sum',
+        'Customer ID': 'nunique'
+    }).reset_index()
+    regions['marge'] = (regions['Profit'] / regions['Sales'] * 100).round(2)
+    
+    # Région sous-performante
+    worst_region = regions.loc[regions['marge'].idxmin()]
+    if worst_region['marge'] < marge_globale - 3:
+        alertes.append(Insight(
+            type="attention",
+            titre="Région sous-performante",
+            message=f"La région {worst_region['Region']} affiche une marge de {worst_region['marge']:.1f}%, en dessous de la moyenne ({marge_globale:.1f}%).",
+            icone="📍"
+        ))
+        recommandations.append(f"Optimiser les coûts logistiques vers la région {worst_region['Region']}.")
+    
+    # Meilleure région
+    best_region = regions.loc[regions['Sales'].idxmax()]
+    insights.append(Insight(
+        type="tendance",
+        titre="Région leader",
+        message=f"La région {best_region['Region']} est en tête avec {best_region['Sales']:,.0f} € de CA.",
+        icone="🌟"
+    ))
+    
+    # === ANALYSE PRODUITS ===
+    produits = df.groupby('Product Name')['Profit'].sum()
+    produits_negatifs = (produits < 0).sum()
+    pct_negatifs = (produits_negatifs / len(produits) * 100)
+    
+    if pct_negatifs > 10:
+        alertes.append(Insight(
+            type="attention",
+            titre="Produits déficitaires",
+            message=f"{produits_negatifs} produits ({pct_negatifs:.1f}%) génèrent des pertes.",
+            icone="❌"
+        ))
+        recommandations.append("Revoir le portefeuille produits : arrêter ou repositionner les références déficitaires.")
+    
+    # === ANALYSE SEGMENTS ===
+    segments = df.groupby('Segment').agg({
+        'Sales': 'sum',
+        'Customer ID': 'nunique'
+    }).reset_index()
+    segments['ca_par_client'] = segments['Sales'] / segments['Customer ID']
+    
+    best_segment = segments.loc[segments['ca_par_client'].idxmax()]
+    insights.append(Insight(
+        type="principal",
+        titre="Segment le plus rentable",
+        message=f"Les clients {best_segment['Segment']} dépensent en moyenne {best_segment['ca_par_client']:,.0f} € par client.",
+        icone="💎"
+    ))
+    
+    # === RECOMMANDATIONS GÉNÉRALES ===
+    if marge_globale < 12:
+        recommandations.append("Améliorer la marge globale en négociant les coûts fournisseurs ou en ajustant les prix.")
+    
+    if len(recommandations) == 0:
+        recommandations.append("Maintenir la stratégie actuelle qui montre de bons résultats.")
+    
+    return StorytellingResponse(
+        resume_principal=resume,
+        insights=insights,
+        alertes=alertes,
+        recommandations=recommandations
+    )
+
+@app.get("/kpi/sous-categories", tags=["KPI Avancés"])
+def get_sous_categories():
+    """
+    📦 PERFORMANCE PAR SOUS-CATÉGORIE
+    
+    Drill-down détaillé par sous-catégorie :
+    - CA et profit par sous-catégorie
+    - Marge par sous-catégorie
+    - Classement par performance
+    """
+    sous_cat = df.groupby(['Category', 'Sub-Category']).agg({
+        'Sales': 'sum',
+        'Profit': 'sum',
+        'Order ID': 'nunique',
+        'Quantity': 'sum'
+    }).reset_index()
+    
+    sous_cat['marge_pct'] = (sous_cat['Profit'] / sous_cat['Sales'] * 100).round(2)
+    sous_cat.columns = ['categorie', 'sous_categorie', 'ca', 'profit', 'nb_commandes', 'quantite', 'marge_pct']
+    sous_cat = sous_cat.sort_values('ca', ascending=False)
+    
+    # Arrondir les valeurs
+    sous_cat['ca'] = sous_cat['ca'].round(2)
+    sous_cat['profit'] = sous_cat['profit'].round(2)
+    
+    return sous_cat.to_dict('records')
 
 # === DÉMARRAGE DU SERVEUR ===
 
