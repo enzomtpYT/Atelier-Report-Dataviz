@@ -18,11 +18,50 @@ st.set_page_config(page_title="Produit", page_icon="📦", layout="wide")
 # Styles
 st.markdown("""
 <style>
-    .produit-header {
-        background: linear-gradient(90deg, #2ecc71, #27ae60);
-        color: white; padding: 20px; border-radius: 10px; margin-bottom: 20px;
+    @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
+    
+    html, body, [class*="css"] {
+        font-family: 'Plus Jakarta Sans', sans-serif;
     }
-    .metric-produit { border-left: 4px solid #2ecc71; }
+
+    .stApp,
+    [data-testid="stAppViewContainer"],
+    .main {
+        background: linear-gradient(180deg, #0f172a 0%, #111827 100%) !important;
+        color: #e2e8f0;
+    }
+
+    .block-container {
+        padding-top: 2rem;
+        padding-bottom: 3rem;
+    }
+
+    .produit-header {
+        background: linear-gradient(135deg, #2ecc71 0%, #27ae60 100%);
+        color: white; 
+        padding: 30px; 
+        border-radius: 15px; 
+        margin-bottom: 25px;
+        box-shadow: 0 4px 15px rgba(46, 204, 113, 0.3);
+    }
+    
+    div[data-testid="stMetric"] {
+        background: rgba(0, 0, 0, 0.88) !important;
+        border: 1px solid rgba(255, 255, 255, 0.12) !important;
+        padding: 20px !important;
+        border-radius: 12px !important;
+        box-shadow: 0 10px 28px rgba(0, 0, 0, 0.35) !important;
+        border-bottom: 5px solid #2ecc71 !important;
+    }
+
+    div[data-testid="stMetricLabel"],
+    div[data-testid="stMetricValue"] {
+        color: #f8fafc !important;
+    }
+    
+    h1 { color: #f8fafc; font-weight: 800; }
+    h2 { color: #f8fafc; font-weight: 700; border-bottom: 2px solid rgba(148, 163, 184, 0.25); padding-bottom: 10px; }
+    h3 { color: #e2e8f0; }
 </style>
 """, unsafe_allow_html=True)
 
