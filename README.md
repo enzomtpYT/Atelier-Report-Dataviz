@@ -2,6 +2,31 @@
 
 Système complet d'analyse Business Intelligence du dataset **Sample Superstore** avec API REST et dashboard interactif.
 
+---
+
+## 👥 Récits Utilisateur
+
+### User Story #1 - Directeur Général (CEO)
+**En tant que** Directeur Général de Superstore,
+**Je veux** avoir une vue stratégique globale sur les performances de l'entreprise avec les évolutions en temps réel,
+**J'ai besoin de :**
+- ✅ Analyser la rentabilité avec le profit total et sa progression
+- ✅ Voir le CA total avec son évolution en % par rapport à la période précédente
+- ✅ Suivre l'activité commerciale via le nombre de commandes et son évolution
+- ✅ Voir si je vends des produits qui ne sont pas rentables
+
+### User Story #2 - Responsable Commercial
+**En tant que** Responsable Commercial de Superstore,
+**Je veux** analyser les performances de vente par segment client et région,
+**Afin d'** optimiser ma stratégie commerciale et atteindre mes objectifs de vente.
+**J'ai besoin de :**
+- ✅ Analyser les performances par région pour optimiser mes actions terrain
+- ✅ Identifier les top clients et leur contribution au CA
+- ✅ Suivre l'évolution du panier moyen
+- ✅ Voir mon taux de fidélisation pour pouvoir lancer des campagnes de fidélisations
+
+---
+
 ## 🎯 Objectifs pédagogiques
 
 Ce projet permet d'apprendre :
